@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import sys
+import unicodedata
 from datetime import datetime
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -350,6 +351,23 @@ def format_check_in_notification(detail: dict) -> str:
 	return '\n'.join(lines)
 
 
+def display_width(text: str) -> int:
+	"""按等宽显示宽度计算字符串长度（中文与 emoji 计 2）"""
+	return sum(2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1 for ch in text)
+
+
+def format_check_in_table(rows: list[tuple[str, str, str]]) -> str:
+	"""把 (账号, 余额, 状态) 渲染成等宽对齐的表格"""
+	headers = ('账号', '余额', '状态')
+	table = [headers, *rows]
+	widths = [max(display_width(row[i]) for row in table) for i in range(3)]
+	lines = []
+	for row in table:
+		cells = [cell + ' ' * (widths[i] - display_width(cell)) for i, cell in enumerate(row)]
+		lines.append('  '.join(cells).rstrip())
+	return '\n'.join(lines)
+
+
 async def check_in_account(account: AccountConfig, account_index: int, app_config: AppConfig):
 	"""为单个账号执行签到操作"""
 	account_name = account.get_display_name(account_index)
@@ -507,7 +525,8 @@ async def main():
 
 	success_count = 0
 	total_count = len(accounts)
-	account_results: dict[str, list[str]] = {}
+	account_results: dict[str, list[tuple[str, str, str]]] = {}
+	error_notes: list[str] = []
 	current_balances = {}
 	account_check_in_details = {}
 
@@ -553,19 +572,20 @@ async def main():
 			if user_info_after and user_info_after.get('success'):
 				balance_text = f'${user_info_after["quota"]:.2f}'
 			if success:
-				status_text = '✔'
+				status_text = '✅'
 			else:
 				status_text = '❌'
 				if user_info_after and not user_info_after.get('success'):
 					reason = str(user_info_after.get('error') or '')
 					if reason:
-						status_text = reason[:50]
-			account_results.setdefault(account.provider, []).append(f'{account_name}-{balance_text}-{status_text}')
+						error_notes.append(f'{account_name}: {reason[:50]}')
+			account_results.setdefault(account.provider, []).append((account_name, balance_text, status_text))
 
 		except Exception as e:
 			account_name = account.get_display_name(i)
 			print(f'[FAILED] {account_name} processing exception: {e}')
-			account_results.setdefault(account.provider, []).append(f'{account_name}-?-{str(e)[:50]}')
+			account_results.setdefault(account.provider, []).append((account_name, '?', '❌'))
+			error_notes.append(f'{account_name}: {str(e)[:50]}')
 
 	current_balance_hash = generate_balance_hash(current_balances) if current_balances else None
 	if current_balance_hash:
@@ -584,9 +604,12 @@ async def main():
 
 	if account_results:
 		blocks = []
-		for provider_name, results in account_results.items():
-			blocks.append('\n'.join([f'--{provider_name}--', *results]))
+		for provider_name, rows in account_results.items():
+			blocks.append(f'--{provider_name}--')
+			blocks.append(format_check_in_table(rows))
 		blocks.append(f'--成功 {success_count}/{total_count}--')
+		if error_notes:
+			blocks.append('\n'.join(error_notes))
 		notify_content = '\n'.join(blocks)
 
 		screenshot_paths = take_pending_screenshots() if is_debug_enabled() else []
