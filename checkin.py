@@ -357,14 +357,16 @@ def display_width(text: str) -> int:
 
 
 def format_check_in_table(rows: list[tuple[str, str, str]]) -> str:
-	"""把 (账号, 余额, 状态) 渲染成等宽对齐的表格"""
-	headers = ('账号', '余额', '状态')
-	table = [headers, *rows]
-	widths = [max(display_width(row[i]) for row in table) for i in range(3)]
+	"""把 (状态, 余额, 账号) 渲染成等宽对齐的表格。
+
+	账号列放在最后：中文在 Telegram 等宽字体里实际宽度并非 ASCII 的整数倍，
+	一旦账号在中间列，后面的余额与状态就无法对齐。
+	"""
+	balance_width = max(display_width(row[1]) for row in rows)
 	lines = []
-	for row in table:
-		cells = [cell + ' ' * (widths[i] - display_width(cell)) for i, cell in enumerate(row)]
-		lines.append('  '.join(cells).rstrip())
+	for status, balance, name in rows:
+		padding = ' ' * (balance_width - display_width(balance))
+		lines.append(f'{status}  {balance}{padding}  {name}'.rstrip())
 	return '\n'.join(lines)
 
 
@@ -579,12 +581,12 @@ async def main():
 					reason = str(user_info_after.get('error') or '')
 					if reason:
 						error_notes.append(f'{account_name}: {reason[:50]}')
-			account_results.setdefault(account.provider, []).append((account_name, balance_text, status_text))
+			account_results.setdefault(account.provider, []).append((status_text, balance_text, account_name))
 
 		except Exception as e:
 			account_name = account.get_display_name(i)
 			print(f'[FAILED] {account_name} processing exception: {e}')
-			account_results.setdefault(account.provider, []).append((account_name, '?', '❌'))
+			account_results.setdefault(account.provider, []).append(('❌', '?', account_name))
 			error_notes.append(f'{account_name}: {str(e)[:50]}')
 
 	current_balance_hash = generate_balance_hash(current_balances) if current_balances else None
