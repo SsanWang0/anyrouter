@@ -549,20 +549,23 @@ async def main():
 					}
 
 			account_name = account.get_display_name(i)
+			balance_text = '?'
+			if user_info_after and user_info_after.get('success'):
+				balance_text = f'${user_info_after["quota"]:.2f}'
 			if success:
-				account_result = f'{account_name}-签到成功'
+				status_text = '✔'
 			else:
-				account_result = f'{account_name}-签到失败'
+				status_text = '❌'
 				if user_info_after and not user_info_after.get('success'):
 					reason = str(user_info_after.get('error') or '')
 					if reason:
-						account_result += f'-{reason[:50]}'
-			account_results.setdefault(account.provider, []).append(account_result)
+						status_text = reason[:50]
+			account_results.setdefault(account.provider, []).append(f'{account_name}-{balance_text}-{status_text}')
 
 		except Exception as e:
 			account_name = account.get_display_name(i)
 			print(f'[FAILED] {account_name} processing exception: {e}')
-			account_results.setdefault(account.provider, []).append(f'{account_name}-签到失败-{str(e)[:50]}')
+			account_results.setdefault(account.provider, []).append(f'{account_name}-?-{str(e)[:50]}')
 
 	current_balance_hash = generate_balance_hash(current_balances) if current_balances else None
 	if current_balance_hash:
